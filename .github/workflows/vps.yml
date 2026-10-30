@@ -7,8 +7,8 @@
 #  ██║  ██║██║  ██║██║███████╗██║ ╚████║╚██████╔╝██████╔╝███████╗███████║     #
 #  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝╚══════╝    #
 #                                                                            #
-#   ULTIMATE GITHUB ACTIONS VPS — 1000+ LINE EDITION                        #
-#   Runtime: 7+ hours (via self-redispatch)  |  SSH: sshx  |  User: custom   #
+#   ULTIMATE GITHUB ACTIONS VPS — FULL EDITION                              #
+#   Runtime: 7+ hours via self-redispatch  |  SSH: sshx  |  User: custom     #
 #                                                                            #
 ##############################################################################
 
@@ -42,9 +42,8 @@ on:
 
 permissions:
   contents: write
-  actions: write   # needed for self-redispatch
+  actions: write
 
-# Prevent overlapping runs
 concurrency:
   group: ariznodes-vps
   cancel-in-progress: false
@@ -57,23 +56,22 @@ env:
   ENABLE_MONITORING: ${{ github.event.inputs.enable_monitoring || 'true' }}
   GIT_USER_NAME: "ARIZNODES Auto-Saver"
   GIT_USER_EMAIL: "ariznodes@autosaver.local"
-  BACKUP_INTERVAL_SEC: "1800"   # 30 min
-  KEEPALIVE_MAX_MIN: "350"      # 5h 50m per job (below the 6h hard limit)
-  TMATE_DEAD: "true"            # marker: we use sshx now
+  BACKUP_INTERVAL_SEC: "1800"
+  KEEPALIVE_MAX_MIN: "350"
 
 jobs:
   # ===========================================================================
-  # JOB 1 — Bootstrap: prepare the runner & persist a "session" marker
+  # JOB 1 — Bootstrap: prepare the runner & persist a session marker
   # ===========================================================================
   Bootstrap:
-    name: "🔧 Bootstrap Runner"
+    name: "Bootstrap Runner"
     runs-on: ubuntu-latest
     outputs:
       sshx_url: ${{ steps.start.outputs.sshx_url }}
       session_id: ${{ steps.meta.outputs.session_id }}
       start_epoch: ${{ steps.meta.outputs.start_epoch }}
     steps:
-      - name: Checkout Repo (Loading saved files)
+      - name: Checkout Repo
         uses: actions/checkout@v4
 
       - name: Generate session metadata
@@ -86,10 +84,9 @@ jobs:
           echo "Session ID: $SESSION_ID"
           echo "Start epoch: $START_EPOCH"
 
-      - name: Create custom user (${{ env.VPS_USER }})
+      - name: Create custom user
         run: |
-          USERNAME="${{ env.VPS_USER }}"
-          # sanitize
+          USERNAME="${VPS_USER}"
           USERNAME=$(echo "$USERNAME" | tr -cd 'a-z0-9_-' | cut -c1-32)
           [ -z "$USERNAME" ] && USERNAME="ariznode"
           echo "Creating user: $USERNAME"
@@ -98,25 +95,23 @@ jobs:
           fi
           echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$USERNAME >/dev/null
           sudo chmod 440 /etc/sudoers.d/$USERNAME
-          # Put repo workspace under user's control
           sudo chown -R "$USERNAME":"$USERNAME" "$GITHUB_WORKSPACE" || true
           echo "USERNAME=$USERNAME" >> $GITHUB_ENV
-          echo "✅ User $USERNAME created with passwordless sudo"
+          echo "User $USERNAME created with passwordless sudo"
 
       - name: Install base packages
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            curl wget git vim nano tmux screen htop btop neofetch \
+            curl wget git vim nano tmux screen htop neofetch \
             zip unzip tar gzip xz-utils jq python3 python3-pip \
             net-tools iputils-ping dnsutils traceroute \
             ca-certificates gnupg lsb-release software-properties-common \
             build-essential pkg-config libssl-dev \
-            rsync nano less tree ncdu \
-            zsh fish 2>/dev/null || true
-          echo "✅ Base packages installed"
+            rsync less tree ncdu zsh fish 2>/dev/null || true
+          echo "Base packages installed"
 
-      - name: Install sshx
+      - name: Install sshx and start session
         id: start
         run: |
           export PATH="$HOME/.local/bin:$PATH"
@@ -126,9 +121,7 @@ jobs:
           curl -sSf https://sshx.io/get | sh -s -- -y >/dev/null 2>&1 || \
           curl -sSf https://sshx.io/get | bash || true
 
-          # Verify binary
           if ! command -v sshx >/dev/null 2>&1; then
-            # Fallback: direct download from GitHub releases
             SSHX_ARCH=$(uname -m)
             case "$SSHX_ARCH" in
               x86_64) SSHX_ARCH="x86_64" ;;
@@ -145,14 +138,12 @@ jobs:
           echo "STARTING SSHX SESSION..."
           echo "====================================="
 
-          # Start sshx as the custom user so files are owned correctly
           sudo -u "$USERNAME" -H bash -c '
             export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
             cd '"$GITHUB_WORKSPACE"'
             sshx -q > /tmp/sshx_url.txt 2>&1 &
             echo $! > /tmp/sshx.pid
-          ' || \
-          ( sshx -q > /tmp/sshx_url.txt 2>&1 & echo $! > /tmp/sshx.pid )
+          ' || ( sshx -q > /tmp/sshx_url.txt 2>&1 & echo $! > /tmp/sshx.pid )
 
           sleep 10
 
@@ -164,17 +155,16 @@ jobs:
           echo "sshx_url=$SSHX_URL" >> $GITHUB_OUTPUT
 
           echo "====================================="
-          echo "🌐 YOUR ARIZNODES VPS LINK:"
+          echo "YOUR ARIZNODES VPS LINK:"
           echo "$SSHX_URL"
           echo "====================================="
-          echo "👤 Username: $USERNAME"
-          echo "⏱️  Session hours requested: $SESSION_HOURS"
-          echo "💾 Save files in the repo folder — auto-backed up every 30 min."
+          echo "Username: $USERNAME"
+          echo "Session hours requested: $SESSION_HOURS"
+          echo "Save files in the repo folder - auto-backed up every 30 min."
           echo "====================================="
 
-          # Fail loudly if sshx failed
           if [ -z "$SSHX_URL" ]; then
-            echo "❌ sshx failed to produce a URL. Raw output:"
+            echo "sshx failed to produce a URL. Raw output:"
             cat /tmp/sshx_url.txt || true
             exit 1
           fi
@@ -185,7 +175,7 @@ jobs:
           cat > .ariznodes/session.json <<EOF
           {
             "session_id": "${{ steps.meta.outputs.session_id }}",
-            "username": "${{ env.VPS_USER }}",
+            "username": "${VPS_USER}",
             "sshx_url": "${{ steps.start.outputs.sshx_url }}",
             "start_epoch": ${{ steps.meta.outputs.start_epoch }},
             "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -209,20 +199,20 @@ jobs:
           git push || echo "Push failed (may be read-only or no changes)"
 
   # ===========================================================================
-  # JOB 2 — The actual VPS: runs 5h50m, keeps sshx alive, backs up, monitors
+  # JOB 2 — The actual VPS
   # ===========================================================================
   VPS:
-    name: "🖥️ ARIZNODES VPS (${{ needs.Bootstrap.outputs.session_id }})"
+    name: "ARIZNODES VPS"
     needs: Bootstrap
     runs-on: ubuntu-latest
-    timeout-minutes: 360   # hard cap just under 6h
+    timeout-minutes: 360
     steps:
-      - name: Checkout Repo (Loading saved files)
+      - name: Checkout Repo
         uses: actions/checkout@v4
 
       - name: Restore custom user
         run: |
-          USERNAME="${{ env.VPS_USER }}"
+          USERNAME="${VPS_USER}"
           USERNAME=$(echo "$USERNAME" | tr -cd 'a-z0-9_-' | cut -c1-32)
           [ -z "$USERNAME" ] && USERNAME="ariznode"
           echo "USERNAME=$USERNAME" >> $GITHUB_ENV
@@ -232,18 +222,18 @@ jobs:
           echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$USERNAME >/dev/null
           sudo chmod 440 /etc/sudoers.d/$USERNAME
           sudo chown -R "$USERNAME":"$USERNAME" "$GITHUB_WORKSPACE" || true
-          echo "✅ Restored user $USERNAME"
+          echo "Restored user $USERNAME"
 
-      - name: Install base packages (again — fresh runner)
+      - name: Install base packages
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            curl wget git vim nano tmux screen htop btop neofetch \
+            curl wget git vim nano tmux screen htop neofetch \
             zip unzip tar gzip xz-utils jq python3 python3-pip \
             net-tools iputils-ping dnsutils traceroute \
             ca-certificates gnupg lsb-release software-properties-common \
             build-essential pkg-config libssl-dev \
-            rsync nano less tree ncdu zsh fish 2>/dev/null || true
+            rsync less tree ncdu zsh fish 2>/dev/null || true
 
       - name: Install Docker (optional)
         if: ${{ env.ENABLE_DOCKER == 'true' }}
@@ -259,7 +249,6 @@ jobs:
         if: ${{ env.ENABLE_DEV_TOOLS == 'true' }}
         run: |
           echo "Installing dev tools..."
-          # Node.js via nvm (as user)
           sudo -u "$USERNAME" -H bash -c '
             export NVM_DIR="$HOME/.nvm"
             curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash || true
@@ -270,10 +259,8 @@ jobs:
             npm --version || true
           ' || true
 
-          # Python venv + pipx
           sudo apt-get install -y -qq python3-venv pipx 2>/dev/null || true
 
-          # Go
           GO_VERSION="1.22.5"
           curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz || true
           if [ -f /tmp/go.tgz ]; then
@@ -282,20 +269,18 @@ jobs:
             echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh >/dev/null
           fi
 
-          # Rust via rustup (as user)
           sudo -u "$USERNAME" -H bash -c '
             curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || true
             . "$HOME/.cargo/env" 2>/dev/null || true
             cargo --version || true
           ' || true
 
-          echo "✅ Dev tools installed"
+          echo "Dev tools installed"
 
       - name: Setup shell environment for user
         run: |
           USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)
           sudo bash -c "cat >> $USER_HOME/.bashrc" <<'EOF'
-          # ARIZNODES environment
           export PATH="$HOME/.local/bin:/usr/local/go/bin:$HOME/.cargo/bin:$PATH"
           export EDITOR=vim
           alias ll='ls -lah'
@@ -308,7 +293,6 @@ jobs:
           [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
           EOF
           sudo chown "$USERNAME":"$USERNAME" "$USER_HOME/.bashrc"
-          # Also for root (in case user drops to root)
           sudo bash -c "cat >> /root/.bashrc" <<'EOF'
           export PATH="$HOME/.local/bin:/usr/local/go/bin:$HOME/.cargo/bin:$PATH"
           PS1='\[\e[1;31m\]ARIZNODES-ROOT\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
@@ -318,7 +302,6 @@ jobs:
         if: ${{ env.ENABLE_MONITORING == 'true' }}
         run: |
           sudo apt-get install -y -qq htop btop neofetch ncdu 2>/dev/null || true
-          # Install btop if not available
           if ! command -v btop &>/dev/null; then
             curl -sSL https://github.com/aristocratos/btop/releases/latest/download/btop-x86_64-linux-musl.tbz -o /tmp/btop.tbz 2>/dev/null || true
             if [ -f /tmp/btop.tbz ]; then
@@ -327,17 +310,12 @@ jobs:
               sudo chmod +x /usr/local/bin/btop 2>/dev/null || true
             fi
           fi
-          echo "✅ Monitoring installed"
+          echo "Monitoring installed"
 
       - name: Show VPS banner
         run: |
           echo "==============================================="
-          echo "  █████╗ ██████╗ ██╗███████╗███╗   ██╗ ██████╗ "
-          echo " ██╔══██╗██╔══██╗██║╚══███╔╝████╗  ██║██╔═══██╗"
-          echo " ███████║██████╔╝██║  ███╔╝ ██╔██╗ ██║██║   ██║"
-          echo " ██╔══██║██╔══██╗██║ ███╔╝  ██║╚██╗██║██║   ██║"
-          echo " ██║  ██║██║  ██║██║███████╗██║ ╚████║╚██████╔╝"
-          echo " ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ "
+          echo "  ARIZNODES VPS"
           echo "==============================================="
           echo "  Username:   $USERNAME"
           echo "  Session:    ${{ needs.Bootstrap.outputs.session_id }}"
@@ -367,11 +345,11 @@ jobs:
           [ -z "$SSHX_URL" ] && SSHX_URL=$(grep -oE 'https://sshx\.io[^ ]*' /tmp/sshx_url.txt | head -n1)
           echo "sshx_url=$SSHX_URL" >> $GITHUB_OUTPUT
           echo "====================================="
-          echo "🌐 THIS JOB'S SSHX LINK:"
+          echo "THIS JOB'S SSHX LINK:"
           echo "$SSHX_URL"
           echo "====================================="
 
-      - name: Background — sshx watchdog (restart if dies)
+      - name: Background - sshx watchdog
         run: |
           (
             while true; do
@@ -389,7 +367,7 @@ jobs:
             done
           ) &
 
-      - name: Background — auto-backup every 30 min
+      - name: Background - auto-backup every 30 min
         run: |
           (
             while true; do
@@ -407,7 +385,7 @@ jobs:
             done
           ) &
 
-      - name: Background — health monitor + stats
+      - name: Background - health monitor
         run: |
           (
             while true; do
@@ -422,7 +400,7 @@ jobs:
             done
           ) &
 
-      - name: Background — auto-cleanup caches
+      - name: Background - auto-cleanup caches
         run: |
           (
             while true; do
@@ -430,31 +408,36 @@ jobs:
               echo "[cleanup] $(date): pruning caches..."
               sudo apt-get autoremove -y -qq 2>/dev/null || true
               sudo apt-get clean -qq 2>/dev/null || true
-              # Trim /tmp older than 1h
               find /tmp -type f -mmin +60 -delete 2>/dev/null || true
-              # Trim npm cache
               sudo -u "$USERNAME" -H bash -c 'npm cache clean --force 2>/dev/null || true' || true
               docker system prune -af --volumes 2>/dev/null || true
               echo "[cleanup] done"
             done
           ) &
 
-      - name: Keep Alive — sleep until 5h50m
+      - name: Keep Alive - sleep until 5h50m
         run: |
           echo "VPS is running. Sleeping ${KEEPALIVE_MAX_MIN} minutes to keep it alive..."
-          echo "Monitor the live log above for health stats every 10 min."
           sleep ${KEEPALIVE_MAX_MIN}m
 
   # ===========================================================================
-  # JOB 3 — Self-Redispatch: chain another run to reach SESSION_HOURS total
+  # JOB 3 — Self-Redispatch
   # ===========================================================================
   Redispatch:
-    name: "🔁 Self-Redispatch (to reach ${{ env.SESSION_HOURS }}h total)"
+    name: "Self-Redispatch (extend session)"
     needs: [Bootstrap, VPS]
     if: always() && needs.VPS.result != 'cancelled'
     runs-on: ubuntu-latest
+    env:
+      VPS_USER: ${{ github.event.inputs.custom_username || 'ariznode' }}
+      SESSION_HOURS: ${{ github.event.inputs.session_hours || '8' }}
+      ENABLE_DOCKER: ${{ github.event.inputs.enable_docker || 'true' }}
+      ENABLE_DEV_TOOLS: ${{ github.event.inputs.enable_dev_tools || 'true' }}
+      ENABLE_MONITORING: ${{ github.event.inputs.enable_monitoring || 'true' }}
+      GIT_USER_NAME: "ARIZNODES Auto-Saver"
+      GIT_USER_EMAIL: "ariznodes@autosaver.local"
     steps:
-      - name: Checkout Repo (Loading saved files)
+      - name: Checkout Repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -485,7 +468,7 @@ jobs:
             echo "should_redispatch=true" >> $GITHUB_OUTPUT
           else
             echo "should_redispatch=false" >> $GITHUB_OUTPUT
-            echo "🎉 Target reached! Stopping redispatch."
+            echo "Target reached! Stopping redispatch."
           fi
 
       - name: Self-redispatch workflow
@@ -493,15 +476,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "🔄 Redispatching to continue for another ~6h..."
-          gh workflow run ariznodes.yml \
+          echo "Redispatching to continue for another ~6h..."
+          gh workflow run vps.yml \
             -f custom_username="${VPS_USER}" \
             -f session_hours="${SESSION_HOURS}" \
             -f enable_docker="${ENABLE_DOCKER}" \
             -f enable_dev_tools="${ENABLE_DEV_TOOLS}" \
             -f enable_monitoring="${ENABLE_MONITORING}" \
-            || echo "⚠️ Redispatch failed (may lack actions:write or PAT). Manual restart needed."
-          echo "✅ Redispatch requested"
+            || echo "Redispatch failed (may lack actions:write or PAT). Manual restart needed."
+          echo "Redispatch requested"
 
       - name: Mark session complete in repo
         if: steps.elapsed.outputs.should_redispatch == 'false'
@@ -519,21 +502,21 @@ jobs:
           git push || true
 
   # ===========================================================================
-  # JOB 4 — Cleanup & summary (always runs, reports what happened)
+  # JOB 4 — Final summary
   # ===========================================================================
   Summary:
-    name: "📊 Final Report"
+    name: "Final Report"
     needs: [Bootstrap, VPS, Redispatch]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo (Loading saved files)
+      - name: Checkout Repo
         uses: actions/checkout@v4
 
       - name: Print final summary
         run: |
           echo "==============================================="
-          echo "        ARIZNODES — SESSION SUMMARY"
+          echo "        ARIZNODES - SESSION SUMMARY"
           echo "==============================================="
           echo "Session ID:   ${{ needs.Bootstrap.outputs.session_id }}"
           echo "Bootstrap:    ${{ needs.Bootstrap.result }}"
