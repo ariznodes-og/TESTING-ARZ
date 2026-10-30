@@ -1,0 +1,8 @@
+{
+  "run_id": "41082417481",
+  "run_number": "4",
+  "finished_at": "2026-10-30T15:39:01Z",
+  "bootstrap_result": "failure",
+  "vps_result": "skipped",
+  "redispatch_result": "success"
+}
