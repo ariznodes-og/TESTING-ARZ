@@ -7,7 +7,7 @@
 #  ██║  ██║██║  ██║██║███████╗██║ ╚████║╚██████╔╝██████╔╝███████╗███████║     #
 #  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝╚══════╝    #
 #                                                                            #
-#   ULTIMATE GITHUB ACTIONS VPS — FULL EDITION                              #
+#   ULTIMATE GITHUB ACTIONS VPS - FULLY FIXED EDITION                       #
 #   Runtime: 7+ hours via self-redispatch  |  SSH: sshx  |  User: custom     #
 #                                                                            #
 ##############################################################################
@@ -61,7 +61,7 @@ env:
 
 jobs:
   # ===========================================================================
-  # JOB 1 — Bootstrap: prepare the runner & persist a session marker
+  # JOB 1 — Bootstrap
   # ===========================================================================
   Bootstrap:
     name: "Bootstrap Runner"
@@ -95,7 +95,6 @@ jobs:
           fi
           echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$USERNAME >/dev/null
           sudo chmod 440 /etc/sudoers.d/$USERNAME
-          sudo chown -R "$USERNAME":"$USERNAME" "$GITHUB_WORKSPACE" || true
           echo "USERNAME=$USERNAME" >> $GITHUB_ENV
           echo "User $USERNAME created with passwordless sudo"
 
@@ -110,6 +109,11 @@ jobs:
             build-essential pkg-config libssl-dev \
             rsync less tree ncdu zsh fish 2>/dev/null || true
           echo "Base packages installed"
+
+      - name: Fix workspace permissions
+        run: |
+          sudo chmod -R a+rwX "$GITHUB_WORKSPACE" || true
+          echo "Workspace permissions fixed (world-readable/writable)"
 
       - name: Install sshx and start session
         id: start
@@ -221,8 +225,12 @@ jobs:
           fi
           echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$USERNAME >/dev/null
           sudo chmod 440 /etc/sudoers.d/$USERNAME
-          sudo chown -R "$USERNAME":"$USERNAME" "$GITHUB_WORKSPACE" || true
           echo "Restored user $USERNAME"
+
+      - name: Fix workspace permissions
+        run: |
+          sudo chmod -R a+rwX "$GITHUB_WORKSPACE" || true
+          echo "Workspace permissions fixed"
 
       - name: Install base packages
         run: |
@@ -292,7 +300,7 @@ jobs:
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
           EOF
-          sudo chown "$USERNAME":"$USERNAME" "$USER_HOME/.bashrc"
+          sudo chown "$USERNAME":"$USERNAME" "$USER_HOME/.bashrc" 2>/dev/null || true
           sudo bash -c "cat >> /root/.bashrc" <<'EOF'
           export PATH="$HOME/.local/bin:/usr/local/go/bin:$HOME/.cargo/bin:$PATH"
           PS1='\[\e[1;31m\]ARIZNODES-ROOT\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
@@ -442,6 +450,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fix workspace permissions
+        run: |
+          sudo chmod -R a+rwX "$GITHUB_WORKSPACE" || true
+
       - name: Restore git identity
         run: |
           git config user.name "$GIT_USER_NAME"
@@ -512,6 +524,10 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
+
+      - name: Fix workspace permissions
+        run: |
+          sudo chmod -R a+rwX "$GITHUB_WORKSPACE" || true
 
       - name: Print final summary
         run: |
