@@ -7,8 +7,8 @@
 #  ██║  ██║██║  ██║██║███████╗██║ ╚████║╚██████╔╝██████╔╝███████╗███████║     #
 #  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝╚══════╝    #
 #                                                                            #
-#   ULTIMATE GITHUB ACTIONS VPS - FULLY FIXED EDITION                       #
-#   Runtime: 7+ hours via self-redispatch  |  SSH: sshx  |  User: custom     #
+#   ULTIMATE GITHUB ACTIONS VPS - NO REDISPATCH EDITION                     #
+#   Runtime: ~5h50m per run  |  SSH: sshx  |  User: custom                   #
 #                                                                            #
 ##############################################################################
 
@@ -21,10 +21,6 @@ on:
         description: 'Custom VPS username (default: ariznode)'
         required: false
         default: 'ariznode'
-      session_hours:
-        description: 'How many hours total (auto-redispatch until reached)'
-        required: false
-        default: '8'
       enable_docker:
         description: 'Install Docker? (true/false)'
         required: false
@@ -42,7 +38,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: ariznodes-vps
@@ -50,7 +45,6 @@ concurrency:
 
 env:
   VPS_USER: ${{ github.event.inputs.custom_username || 'ariznode' }}
-  SESSION_HOURS: ${{ github.event.inputs.session_hours || '8' }}
   ENABLE_DOCKER: ${{ github.event.inputs.enable_docker || 'true' }}
   ENABLE_DEV_TOOLS: ${{ github.event.inputs.enable_dev_tools || 'true' }}
   ENABLE_MONITORING: ${{ github.event.inputs.enable_monitoring || 'true' }}
@@ -113,7 +107,7 @@ jobs:
       - name: Fix workspace permissions
         run: |
           sudo chmod -R a+rwX "$GITHUB_WORKSPACE" || true
-          echo "Workspace permissions fixed (world-readable/writable)"
+          echo "Workspace permissions fixed"
 
       - name: Install sshx and start session
         id: start
@@ -163,7 +157,6 @@ jobs:
           echo "$SSHX_URL"
           echo "====================================="
           echo "Username: $USERNAME"
-          echo "Session hours requested: $SESSION_HOURS"
           echo "Save files in the repo folder - auto-backed up every 30 min."
           echo "====================================="
 
@@ -328,8 +321,7 @@ jobs:
           echo "  Username:   $USERNAME"
           echo "  Session:    ${{ needs.Bootstrap.outputs.session_id }}"
           echo "  Link:       ${{ needs.Bootstrap.outputs.sshx_url }}"
-          echo "  Runtime:    ${KEEPALIVE_MAX_MIN}m this job (~6h cap)"
-          echo "  Total goal: ${SESSION_HOURS}h (auto-redispatch)"
+          echo "  Runtime:    ${KEEPALIVE_MAX_MIN}m this job"
           echo "  Backup:     every ${BACKUP_INTERVAL_SEC}s"
           echo "==============================================="
 
@@ -429,96 +421,11 @@ jobs:
           sleep ${KEEPALIVE_MAX_MIN}m
 
   # ===========================================================================
-  # JOB 3 — Self-Redispatch
-  # ===========================================================================
-  Redispatch:
-    name: "Self-Redispatch (extend session)"
-    needs: [Bootstrap, VPS]
-    if: always() && needs.VPS.result != 'cancelled'
-    runs-on: ubuntu-latest
-    env:
-      VPS_USER: ${{ github.event.inputs.custom_username || 'ariznode' }}
-      SESSION_HOURS: ${{ github.event.inputs.session_hours || '8' }}
-      ENABLE_DOCKER: ${{ github.event.inputs.enable_docker || 'true' }}
-      ENABLE_DEV_TOOLS: ${{ github.event.inputs.enable_dev_tools || 'true' }}
-      ENABLE_MONITORING: ${{ github.event.inputs.enable_monitoring || 'true' }}
-      GIT_USER_NAME: "ARIZNODES Auto-Saver"
-      GIT_USER_EMAIL: "ariznodes@autosaver.local"
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Fix workspace permissions
-        run: |
-          sudo chmod -R a+rwX "$GITHUB_WORKSPACE" || true
-
-      - name: Restore git identity
-        run: |
-          git config user.name "$GIT_USER_NAME"
-          git config user.email "$GIT_USER_EMAIL"
-
-      - name: Read session start time & compute elapsed
-        id: elapsed
-        run: |
-          if [ -f .ariznodes/session.json ]; then
-            START_EPOCH=$(jq -r '.start_epoch' .ariznodes/session.json)
-          else
-            START_EPOCH=$(date +%s)
-          fi
-          NOW=$(date +%s)
-          ELAPSED_SEC=$(( NOW - START_EPOCH ))
-          ELAPSED_H=$(( ELAPSED_SEC / 3600 ))
-          TARGET_H=$(( SESSION_HOURS ))
-          echo "start_epoch=$START_EPOCH" >> $GITHUB_OUTPUT
-          echo "elapsed_sec=$ELAPSED_SEC" >> $GITHUB_OUTPUT
-          echo "elapsed_h=$ELAPSED_H" >> $GITHUB_OUTPUT
-          echo "target_h=$TARGET_H" >> $GITHUB_OUTPUT
-          echo "Elapsed: ${ELAPSED_H}h / Target: ${TARGET_H}h"
-          if [ "$ELAPSED_H" -lt "$TARGET_H" ]; then
-            echo "should_redispatch=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_redispatch=false" >> $GITHUB_OUTPUT
-            echo "Target reached! Stopping redispatch."
-          fi
-
-      - name: Self-redispatch workflow
-        if: steps.elapsed.outputs.should_redispatch == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Redispatching to continue for another ~6h..."
-          gh workflow run vps.yml \
-            -f custom_username="${VPS_USER}" \
-            -f session_hours="${SESSION_HOURS}" \
-            -f enable_docker="${ENABLE_DOCKER}" \
-            -f enable_dev_tools="${ENABLE_DEV_TOOLS}" \
-            -f enable_monitoring="${ENABLE_MONITORING}" \
-            || echo "Redispatch failed (may lack actions:write or PAT). Manual restart needed."
-          echo "Redispatch requested"
-
-      - name: Mark session complete in repo
-        if: steps.elapsed.outputs.should_redispatch == 'false'
-        run: |
-          mkdir -p .ariznodes
-          cat > .ariznodes/complete.json <<EOF
-          {
-            "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "total_elapsed_h": ${{ steps.elapsed.outputs.elapsed_h }},
-            "target_h": ${{ steps.elapsed.outputs.target_h }}
-          }
-          EOF
-          git add .ariznodes/complete.json
-          git commit -m "ARIZNODES: session complete" || true
-          git push || true
-
-  # ===========================================================================
-  # JOB 4 — Final summary
+  # JOB 3 — Final summary
   # ===========================================================================
   Summary:
     name: "Final Report"
-    needs: [Bootstrap, VPS, Redispatch]
+    needs: [Bootstrap, VPS]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -537,9 +444,7 @@ jobs:
           echo "Session ID:   ${{ needs.Bootstrap.outputs.session_id }}"
           echo "Bootstrap:    ${{ needs.Bootstrap.result }}"
           echo "VPS:          ${{ needs.VPS.result }}"
-          echo "Redispatch:   ${{ needs.Redispatch.result }}"
           echo "Username:     ${VPS_USER}"
-          echo "Target hours: ${SESSION_HOURS}"
           echo "==============================================="
           if [ -f .ariznodes/session.json ]; then
             echo "Session file:"
@@ -559,8 +464,7 @@ jobs:
             "run_number": "${GITHUB_RUN_NUMBER}",
             "finished_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "bootstrap_result": "${{ needs.Bootstrap.result }}",
-            "vps_result": "${{ needs.VPS.result }}",
-            "redispatch_result": "${{ needs.Redispatch.result }}"
+            "vps_result": "${{ needs.VPS.result }}"
           }
           EOF
           git add .ariznodes/ 2>/dev/null || true
